@@ -1,0 +1,3 @@
+com\codesync\gateway\filter\RoleAuthorizationFilter.class
+com\codesync\gateway\ApiGatewayApplication.class
+com\codesync\gateway\filter\JwtAuthFilter.class
