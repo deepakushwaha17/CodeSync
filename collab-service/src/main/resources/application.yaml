@@ -1,0 +1,73 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: collab-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/codesync_collab
+    username: auth_user
+    password: auth_pass
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # Redis for WebSocket session state
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: codesync_redis_pass
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# Inactive session cleanup — 30 minutes
+collab:
+  session:
+    inactive-timeout-minutes: 30
+
+logging:
+  level:
+    com.codesync.collab: DEBUG
+    org.springframework.security: WARN
+    org.springframework.web.socket: INFO

@@ -1,0 +1,85 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: execution-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/codesync_execution
+    username: auth_user
+    password: auth_pass
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # RabbitMQ Configuration
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: codesync
+    password: codesync_rabbit_pass
+    virtual-host: codesync_vhost
+    listener:
+      simple:
+        # Number of concurrent consumers
+        concurrency: 3
+        max-concurrency: 10
+        # Auto-acknowledge after processing
+        acknowledge-mode: auto
+        # Retry failed messages
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000
+          multiplier: 2.0
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# Execution sandbox limits
+execution:
+  sandbox:
+    max-time-seconds: 10
+    max-memory-mb: 256
+    queue-name: execution.jobs
+    exchange-name: execution.exchange
+    routing-key: execution.route
+
+logging:
+  level:
+    com.codesync.execution: DEBUG
+    org.springframework.amqp: INFO
+    org.springframework.security: WARN
