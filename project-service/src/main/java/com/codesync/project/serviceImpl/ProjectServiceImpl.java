@@ -1,5 +1,7 @@
 package com.codesync.project.serviceImpl;
 
+import com.codesync.project.client.NotificationClient;
+import com.codesync.project.client.NotificationRequest;
 import com.codesync.project.dto.request.AddMemberRequest;
 import com.codesync.project.dto.request.CreateProjectRequest;
 import com.codesync.project.dto.request.UpdateProjectRequest;
@@ -29,6 +31,7 @@ public class ProjectServiceImpl implements ProjectService {
 
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository memberRepository;
+    private final NotificationClient notificationClient;
 
     // ─────────────────────────────────────────────────────────────────
     // CORE CRUD
@@ -214,6 +217,23 @@ public class ProjectServiceImpl implements ProjectService {
         original.setForkCount(original.getForkCount() + 1);
         projectRepository.save(original);
 
+        try {
+            notificationClient.sendNotification(
+                    NotificationRequest.builder()
+                            .recipientId(original.getOwnerId())
+                            .actorId(requestingUserId)
+                            .type("PROJECT_FORKED")
+                            .title("Your project was forked")
+                            .message("Your project '" + original.getName()
+                                    + "' was forked.")
+                            .relatedId(original.getProjectId())
+                            .relatedType("PROJECT")
+                            .build());
+        } catch (Exception e) {
+            log.warn("Could not send fork notification: {}",
+                    e.getMessage());
+        }
+
         log.info("Project {} forked by user {} → new project {}",
                 projectId, requestingUserId, savedFork.getProjectId());
 
@@ -264,6 +284,25 @@ public class ProjectServiceImpl implements ProjectService {
                 .build();
 
         ProjectMember saved = memberRepository.save(member);
+
+        try {
+            notificationClient.sendNotification(
+                    NotificationRequest.builder()
+                            .recipientId(request.getUserId())
+                            .actorId(ownerId)
+                            .type("MEMBER_ADDED")
+                            .title("Added to a project")
+                            .message("You were added to project '"
+                                    + project.getName()
+                                    + "' as " + request.getRole())
+                            .relatedId(project.getProjectId())
+                            .relatedType("PROJECT")
+                            .build());
+        } catch (Exception e) {
+            log.warn("Could not send member added notification: {}",
+                    e.getMessage());
+        }
+
         log.info("User {} added to project {} as {}",
                 request.getUserId(), projectId, request.getRole());
 

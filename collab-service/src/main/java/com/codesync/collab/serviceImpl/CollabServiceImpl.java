@@ -1,5 +1,7 @@
 package com.codesync.collab.serviceImpl;
 
+import com.codesync.collab.client.NotificationClient;
+import com.codesync.collab.client.NotificationRequest;
 import com.codesync.collab.dto.request.CreateSessionRequest;
 import com.codesync.collab.dto.request.JoinSessionRequest;
 import com.codesync.collab.dto.response.ParticipantResponse;
@@ -33,6 +35,7 @@ public class CollabServiceImpl implements CollabService {
     private final CollabSessionRepository sessionRepository;
     private final ParticipantRepository participantRepository;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final NotificationClient notificationClient;
 
     private final BCryptPasswordEncoder passwordEncoder =
             new BCryptPasswordEncoder();
@@ -236,6 +239,26 @@ public class CollabServiceImpl implements CollabService {
                 .build();
 
         Participant saved = participantRepository.save(participant);
+
+        // Notify session owner that someone joined
+        if (!userId.equals(session.getOwnerId())) {
+            try {
+                notificationClient.sendNotification(
+                        NotificationRequest.builder()
+                                .recipientId(session.getOwnerId())
+                                .actorId(userId)
+                                .type("PARTICIPANT_JOINED")
+                                .title("Someone joined your session")
+                                .message("A user joined your collaboration "
+                                        + "session.")
+                                .relatedType("SESSION")
+                                .build());
+            } catch (Exception e) {
+                log.warn("Could not send join notification: {}",
+                        e.getMessage());
+            }
+        }
+
         updateLastActivity(sessionId);
 
         log.info("User {} joined session {}", userId, sessionId);
@@ -281,6 +304,22 @@ public class CollabServiceImpl implements CollabService {
 
         participant.setLeftAt(LocalDateTime.now());
         participantRepository.save(participant);
+
+        try {
+            notificationClient.sendNotification(
+                    NotificationRequest.builder()
+                            .recipientId(userId)
+                            .actorId(ownerId)
+                            .type("SESSION_INVITE")
+                            .title("Removed from session")
+                            .message("You were removed from a "
+                                    + "collaboration session.")
+                            .relatedType("SESSION")
+                            .build());
+        } catch (Exception e) {
+            log.warn("Could not send kick notification: {}",
+                    e.getMessage());
+        }
 
         log.info("User {} kicked from session {} by owner {}",
                 userId, sessionId, ownerId);

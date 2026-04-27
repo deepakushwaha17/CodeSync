@@ -1,6 +1,7 @@
 package com.codesync.auth.repository;
 
 import com.codesync.auth.entity.User;
+import com.codesync.auth.enums.Provider;
 import com.codesync.auth.enums.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -22,6 +23,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByUsername(String username);
 
     List<User> findAllByRole(Role role);
+
+    Optional<User> findByProviderAndProviderId(Provider provider, String providerId);
 
     // Search users by username containing keyword (case-insensitive)
     @Query("SELECT u FROM User u WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%'))")

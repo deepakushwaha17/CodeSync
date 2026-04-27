@@ -19,15 +19,12 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class OAuth2SuccessHandler
-        extends SimpleUrlAuthenticationSuccessHandler {
+public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
     private final UserRepository userRepository;
 
@@ -43,97 +40,58 @@ public class OAuth2SuccessHandler
             HttpServletResponse response,
             Authentication authentication) throws IOException {
 
-        OAuth2AuthenticationToken oauthToken =
-                (OAuth2AuthenticationToken) authentication;
-
-        String providerName = oauthToken
-                .getAuthorizedClientRegistrationId()
-                .toUpperCase();
-
+        OAuth2AuthenticationToken oauthToken = (OAuth2AuthenticationToken) authentication;
         OAuth2User oAuth2User = oauthToken.getPrincipal();
-        Map<String, Object> attributes = oAuth2User.getAttributes();
 
-        log.info("OAuth2 success handler triggered for: {}",
-                providerName);
+        // FIX: email is always present now — OAuth2UserServiceImpl guarantees it
+        String email = (String) oAuth2User.getAttributes().get("email");
 
-        // Extract email
-        String email = extractEmail(providerName, attributes);
-        log.info("Looking up user with email: {}", email);
+        if (email == null || email.isBlank()) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write(
+                    "{\"success\":false,\"message\":\"Email not available from provider\"}");
+            return;
+        }
 
-        // Find user
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException(
-                        "User not found: " + email));
+                        "User not found after OAuth2 login: " + email));
 
-        // Generate JWT
         String token = generateToken(user);
 
-        // Return JSON response directly in the browser
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
         response.getWriter().write(String.format(
-                "{" +
-                        "\"success\": true," +
-                        "\"message\": \"OAuth2 login successful\"," +
-                        "\"data\": {" +
-                        "\"accessToken\": \"%s\"," +
-                        "\"tokenType\": \"Bearer\"," +
-                        "\"expiresIn\": %d," +
-                        "\"user\": {" +
-                        "\"userId\": %d," +
-                        "\"username\": \"%s\"," +
-                        "\"email\": \"%s\"," +
-                        "\"role\": \"%s\"," +
-                        "\"provider\": \"%s\"," +
-                        "\"isActive\": %b" +
-                        "}" +
-                        "}" +
-                        "}",
-                token,
-                jwtExpiration,
-                user.getUserId(),
-                user.getUsername(),
-                user.getEmail(),
-                user.getRole(),
-                user.getProvider(),
-                user.getIsActive()
+                "{\"success\":true,\"message\":\"OAuth2 login successful\"," +
+                        "\"data\":{\"accessToken\":\"%s\",\"tokenType\":\"Bearer\"," +
+                        "\"expiresIn\":%d,\"user\":{\"userId\":%d,\"username\":\"%s\"," +
+                        "\"email\":\"%s\",\"role\":\"%s\",\"provider\":\"%s\",\"isActive\":%b}}}",
+                token, jwtExpiration,
+                user.getUserId(), user.getUsername(), user.getEmail(),
+                user.getRole(), user.getProvider(), user.getIsActive()
         ));
-    }
 
-    private String extractEmail(String provider, Map<String, Object> attributes) {
-        if ("GOOGLE".equals(provider)) {
-            return (String) attributes.get("email");
-        }
-        if ("GITHUB".equals(provider)) {
-            Object email = attributes.get("email");
-            if (email != null && !email.toString().isBlank()) {
-                return email.toString();
-            }
-            // Must match EXACT placeholder saved by OAuth2UserServiceImpl
-            return "github_" + attributes.get("id") + "@codesync.placeholder";
-        }
-        throw new RuntimeException("Cannot extract email for provider: " + provider);
+        log.info("OAuth2 JWT issued for: {}", user.getEmail());
     }
 
     private String generateToken(User user) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", user.getUserId());
-        claims.put("role",   user.getRole().name());
-        claims.put("email",  user.getEmail());
+        claims.put("role", user.getRole().name());
+        claims.put("email", user.getEmail());
 
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(user.getEmail())
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(
-                        System.currentTimeMillis() + jwtExpiration))
+                .setExpiration(new Date(System.currentTimeMillis() + jwtExpiration))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
     private Key getSigningKey() {
-        return Keys.hmacShaKeyFor(
-                jwtSecret.getBytes(StandardCharsets.UTF_8));
+        return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
     }
 }

@@ -1,5 +1,7 @@
 package com.codesync.version.serviceImpl;
 
+import com.codesync.version.client.NotificationClient;
+import com.codesync.version.client.NotificationRequest;
 import com.codesync.version.dto.request.CreateBranchRequest;
 import com.codesync.version.dto.request.CreateSnapshotRequest;
 import com.codesync.version.dto.request.TagSnapshotRequest;
@@ -33,6 +35,7 @@ import java.util.stream.Collectors;
 public class VersionServiceImpl implements VersionService {
 
     private final SnapshotRepository snapshotRepository;
+    private final NotificationClient notificationClient;
 
     // ─────────────────────────────────────────────────────────────────
     // SNAPSHOT CRUD
@@ -75,6 +78,24 @@ public class VersionServiceImpl implements VersionService {
                 .build();
 
         Snapshot saved = snapshotRepository.save(snapshot);
+
+        try {
+            notificationClient.sendNotification(
+                    NotificationRequest.builder()
+                            .recipientId(authorId)
+                            .actorId(authorId)
+                            .type("SNAPSHOT_CREATED")
+                            .title("Snapshot created")
+                            .message("Snapshot '" + request.getMessage()
+                                    + "' created on branch: " + branch)
+                            .relatedId(saved.getSnapshotId())
+                            .relatedType("SNAPSHOT")
+                            .build());
+        } catch (Exception e) {
+            log.warn("Could not send snapshot notification: {}",
+                    e.getMessage());
+        }
+
         log.info("Snapshot created with ID: {}, hash: {}",
                 saved.getSnapshotId(), hash);
 

@@ -6,16 +6,18 @@ import com.codesync.auth.enums.Role;
 import com.codesync.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.*;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -26,38 +28,48 @@ public class OAuth2UserServiceImpl extends DefaultOAuth2UserService {
 
     @Override
     @Transactional
-    public OAuth2User loadUser(OAuth2UserRequest userRequest)
-            throws OAuth2AuthenticationException {
+    public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
 
         OAuth2User oAuth2User = super.loadUser(userRequest);
+        String registrationId = userRequest.getClientRegistration()
+                .getRegistrationId().toLowerCase();
 
-        String providerName = userRequest
-                .getClientRegistration()
-                .getRegistrationId()
-                .toUpperCase();
+        OAuth2User effectiveUser = oAuth2User;
 
-        Map<String, Object> attributes = oAuth2User.getAttributes();
+        // FIX: GitHub returns null email when user has set it to private.
+        // Fetch from /user/emails API using the access token instead.
+        if ("github".equals(registrationId)) {
+            Map<String, Object> attributes = new HashMap<>(oAuth2User.getAttributes());
+            String email = attributes.get("email") != null
+                    ? attributes.get("email").toString() : null;
 
-        log.info("OAuth2 user loaded from provider: {}", providerName);
-        log.debug("Attributes received: {}", attributes);
+            if (email == null || email.isBlank()) {
+                email = fetchGithubPrimaryEmail(
+                        userRequest.getAccessToken().getTokenValue());
+                attributes.put("email", email);
+                log.info("Fetched GitHub primary email via API: {}", email);
+            }
 
-        OAuth2UserInfo userInfo = OAuth2UserInfoFactory
-                .extract(providerName, attributes);
-
-        // Handle missing email (GitHub private email setting)
-        if (userInfo.getEmail() == null
-                || userInfo.getEmail().isBlank()) {
-            userInfo.setEmail(
-                    "github_"
-                            + userInfo.getProviderId()
-                            + "@codesync.placeholder"
-            );
-            log.warn("GitHub email was private. " +
-                    "Using placeholder: {}", userInfo.getEmail());
+            effectiveUser = new DefaultOAuth2User(
+                    oAuth2User.getAuthorities(), attributes, "id");
         }
 
-        Optional<User> existingUser =
-                userRepository.findByEmail(userInfo.getEmail());
+        OAuth2UserInfo userInfo = OAuth2UserInfoFactory.extract(
+                registrationId, effectiveUser.getAttributes());
+
+        if (userInfo.getEmail() == null || userInfo.getEmail().isBlank()) {
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error("email_not_found"),
+                    "Email not found from OAuth2 provider: " + registrationId);
+        }
+
+        log.info("OAuth2 user loaded: provider={}, email={}", registrationId, userInfo.getEmail());
+
+        // FIX: look up by provider + providerId (stable) instead of email only
+        Optional<User> existingUser = userRepository.findByProviderAndProviderId(
+                Provider.valueOf(registrationId.toUpperCase()),
+                userInfo.getProviderId()
+        );
 
         if (existingUser.isPresent()) {
             User user = existingUser.get();
@@ -65,31 +77,25 @@ public class OAuth2UserServiceImpl extends DefaultOAuth2UserService {
                 user.setAvatarUrl(userInfo.getAvatarUrl());
                 userRepository.save(user);
             }
-            log.info("Existing user logged in via OAuth2: {}",
-                    user.getEmail());
+            log.info("Existing OAuth2 user logged in: {}", user.getEmail());
         } else {
-            registerNewUser(userInfo);
+            registerNewUser(userInfo, registrationId);
         }
 
-        return oAuth2User;
+        return effectiveUser;
     }
 
-    private void registerNewUser(OAuth2UserInfo userInfo) {
+    private void registerNewUser(OAuth2UserInfo userInfo, String registrationId) {
         String baseUsername = userInfo.getName() != null
-                ? userInfo.getName()
-                  .toLowerCase()
+                ? userInfo.getName().toLowerCase()
                   .replaceAll("\\s+", "")
                   .replaceAll("[^a-z0-9]", "")
-                : userInfo.getProvider().toLowerCase()
-                  + userInfo.getProviderId();
+                : registrationId + userInfo.getProviderId();
 
-        // Make sure username is not empty
         if (baseUsername.isBlank()) {
-            baseUsername = userInfo.getProvider().toLowerCase()
-                    + userInfo.getProviderId();
+            baseUsername = registrationId + userInfo.getProviderId();
         }
 
-        // Ensure unique username
         String username = baseUsername;
         int counter = 1;
         while (userRepository.existsByUsername(username)) {
@@ -102,13 +108,50 @@ public class OAuth2UserServiceImpl extends DefaultOAuth2UserService {
                 .passwordHash(UUID.randomUUID().toString())
                 .fullName(userInfo.getName())
                 .role(Role.DEVELOPER)
-                .provider(Provider.valueOf(userInfo.getProvider()))
+                .provider(Provider.valueOf(registrationId.toUpperCase()))
+                .providerId(userInfo.getProviderId())   // FIX: store providerId
                 .avatarUrl(userInfo.getAvatarUrl())
                 .isActive(true)
                 .build();
 
         userRepository.save(newUser);
-        log.info("New OAuth2 user registered: {} via {}",
-                newUser.getEmail(), userInfo.getProvider());
+        log.info("New OAuth2 user registered: {} via {}", newUser.getEmail(), registrationId);
+    }
+
+    // FIX: fetch real email from GitHub when user has set it to private
+    private String fetchGithubPrimaryEmail(String accessToken) {
+        RestTemplate restTemplate = new RestTemplate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.set("X-GitHub-Api-Version", "2022-11-28");
+
+        ResponseEntity<List> response = restTemplate.exchange(
+                "https://api.github.com/user/emails",
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                List.class
+        );
+
+        List<Map<String, Object>> emails = response.getBody();
+        if (emails != null) {
+            for (Map<String, Object> e : emails) {
+                if (Boolean.TRUE.equals(e.get("primary"))
+                        && Boolean.TRUE.equals(e.get("verified"))
+                        && e.get("email") != null) {
+                    return e.get("email").toString();
+                }
+            }
+            for (Map<String, Object> e : emails) {
+                if (Boolean.TRUE.equals(e.get("verified")) && e.get("email") != null) {
+                    return e.get("email").toString();
+                }
+            }
+        }
+
+        throw new OAuth2AuthenticationException(
+                new OAuth2Error("email_not_found"),
+                "Could not retrieve a verified email from GitHub");
     }
 }

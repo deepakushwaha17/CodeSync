@@ -48,6 +48,9 @@ public class User {
     @Column(nullable = false)
     private Provider provider;
 
+    @Column(name = "provider_id")
+    private String providerId;
+
     @Column(nullable = false)
     private Boolean isActive;
 

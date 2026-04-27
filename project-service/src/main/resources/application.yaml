@@ -5,6 +5,11 @@ spring:
   application:
     name: project-service
 
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+
   datasource:
     url: jdbc:postgresql://localhost:5432/codesync_project
     username: auth_user
@@ -53,3 +58,13 @@ logging:
   level:
     com.codesync.project: DEBUG
     org.springframework.security: WARN
+
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 3000
+        readTimeout: 5000
+        loggerLevel: basic
+  circuitbreaker:
+    enabled: true

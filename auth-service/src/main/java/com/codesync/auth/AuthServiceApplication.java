@@ -9,10 +9,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 public class AuthServiceApplication {
 
     public static void main(String[] args) {
-
         SpringApplication.run(AuthServiceApplication.class, args);
-
-        System.out.println(System.getenv("GOOGLE_CLIENT_ID"));
     }
 
 }

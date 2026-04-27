@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: collab-service
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
 
   datasource:
     url: jdbc:postgresql://localhost:5432/codesync_collab
@@ -71,3 +75,13 @@ logging:
     com.codesync.collab: DEBUG
     org.springframework.security: WARN
     org.springframework.web.socket: INFO
+
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 3000
+        readTimeout: 5000
+        loggerLevel: basic
+  circuitbreaker:
+    enabled: true

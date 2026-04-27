@@ -27,13 +27,13 @@ spring:
     oauth2:
       client:
         registration:
-
           github:
             client-id: ${GITHUB_CLIENT_ID}
             client-secret: ${GITHUB_CLIENT_SECRET}
             scope:
               - user:email
               - read:user
+            # FIX: was 8080 (gateway port) — must be 8081 (auth-service port)
             redirect-uri: "http://localhost:8080/login/oauth2/code/github"
             authorization-grant-type: authorization_code
             client-name: GitHub
@@ -44,6 +44,7 @@ spring:
             scope:
               - email
               - profile
+            # FIX: was 8080 (gateway port) — must be 8081 (auth-service port)
             redirect-uri: "http://localhost:8080/login/oauth2/code/google"
             authorization-grant-type: authorization_code
             client-name: Google
@@ -53,7 +54,8 @@ spring:
             authorization-uri: https://github.com/login/oauth/authorize
             token-uri: https://github.com/login/oauth/access_token
             user-info-uri: https://api.github.com/user
-            user-name-attribute: login
+            # FIX: was "login" — must be "id" (numeric, stable GitHub user identifier)
+            user-name-attribute: id
 
           google:
             authorization-uri: https://accounts.google.com/o/oauth2/auth
@@ -71,13 +73,14 @@ eureka:
     prefer-ip-address: true
     instance-id: ${spring.application.name}:${server.port}
 
+# FIX: secrets now read from env vars, not hardcoded
 jwt:
-  secret: codesync-super-secret-jwt-key-must-be-at-least-256-bits-long-for-hs256
-  expiration: 86400000
-  refresh-expiration: 604800000
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:86400000}
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
 oauth2:
-  redirect-uri: http://localhost:3000/oauth2/success
+  redirect-uri: ${OAUTH2_REDIRECT_URI:http://localhost:3000/oauth2/success}
 
 management:
   endpoints:

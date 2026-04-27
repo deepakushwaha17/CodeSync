@@ -1,5 +1,7 @@
 package com.codesync.comment.serviceImpl;
 
+import com.codesync.comment.client.NotificationClient;
+import com.codesync.comment.client.NotificationRequest;
 import com.codesync.comment.dto.request.AddCommentRequest;
 import com.codesync.comment.dto.request.UpdateCommentRequest;
 import com.codesync.comment.dto.response.CommentResponse;
@@ -25,6 +27,7 @@ import java.util.stream.Collectors;
 public class CommentServiceImpl implements CommentService {
 
     private final CommentRepository commentRepository;
+    private final NotificationClient notificationClient;
 
     // Regex to extract @mentions from comment content
     private static final Pattern MENTION_PATTERN =
@@ -66,6 +69,35 @@ public class CommentServiceImpl implements CommentService {
                 .build();
 
         Comment saved = commentRepository.save(comment);
+
+        // Notify parent comment author if this is a reply
+        if (request.getParentCommentId() != null) {
+            commentRepository
+                    .findById(request.getParentCommentId())
+                    .ifPresent(parent -> {
+                        if (!parent.getAuthorId().equals(authorId)) {
+                            try {
+                                notificationClient.sendNotification(
+                                        NotificationRequest.builder()
+                                                .recipientId(parent.getAuthorId())
+                                                .actorId(authorId)
+                                                .type("COMMENT_REPLY")
+                                                .title("New reply to your comment")
+                                                .message("Someone replied to your "
+                                                        + "comment on line "
+                                                        + request.getLineNumber())
+                                                .relatedId(saved.getCommentId())
+                                                .relatedType("COMMENT")
+                                                .build());
+                            } catch (Exception e) {
+                                log.warn("Could not send reply " +
+                                                "notification: {}",
+                                        e.getMessage());
+                            }
+                        }
+                    });
+        }
+
         log.info("Comment saved with ID: {}", saved.getCommentId());
 
         return mapToResponse(saved);
