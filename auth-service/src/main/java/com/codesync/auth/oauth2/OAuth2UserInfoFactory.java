@@ -6,7 +6,6 @@ public class OAuth2UserInfoFactory {
 
     public static OAuth2UserInfo extract(String registrationId, Map<String, Object> attributes) {
 
-        // FIX: use lowercase — Spring passes registrationId in lowercase
         switch (registrationId.toLowerCase()) {
 
             case "github":

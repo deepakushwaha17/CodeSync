@@ -4,6 +4,7 @@ import com.codesync.execution.entity.SupportedLanguage;
 import com.codesync.execution.repository.SupportedLanguageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -16,6 +17,7 @@ import java.util.List;
 @SpringBootApplication
 @EnableDiscoveryClient
 @RequiredArgsConstructor
+@EnableRabbit
 public class ExecutionServiceApplication {
 
     public static void main(String[] args) {
@@ -23,9 +25,6 @@ public class ExecutionServiceApplication {
         SpringApplication.run(ExecutionServiceApplication.class, args);
     }
 
-    /**
-     * Seed supported languages on startup if not already present.
-     */
     @Bean
     public CommandLineRunner seedLanguages(
             SupportedLanguageRepository repo) {
@@ -43,16 +42,15 @@ public class ExecutionServiceApplication {
                             .name("java")
                             .displayName("Java")
                             .version("21")
-                            .dockerImage("openjdk:21-slim")
+                            .dockerImage("eclipse-temurin:21-jdk")
                             .fileExtension(".java")
-                            .helloWorldCode(
-                                    "public class Main {\n" +
-                                            "    public static void main(" +
-                                            "String[] args) {\n" +
-                                            "        System.out.println(" +
-                                            "\"Hello, World!\");\n" +
-                                            "    }\n" +
-                                            "}")
+                            .helloWorldCode("""
+                                public class Main {
+                                    public static void main(String[] args) {
+                                        System.out.println("Hello, World!");
+                                    }
+                                }
+                                """)
                             .isActive(true)
                             .build(),
 
@@ -84,12 +82,13 @@ public class ExecutionServiceApplication {
                             .version("GCC 13")
                             .dockerImage("gcc:13")
                             .fileExtension(".c")
-                            .helloWorldCode(
-                                    "#include <stdio.h>\n" +
-                                            "int main() {\n" +
-                                            "    printf(\"Hello, World!\\n\");\n" +
-                                            "    return 0;\n" +
-                                            "}")
+                            .helloWorldCode("""
+                                #include <stdio.h>
+                                int main() {
+                                    printf("Hello, World!");
+                                    return 0;
+                                }
+                                """)
                             .isActive(true)
                             .build(),
 
@@ -99,13 +98,13 @@ public class ExecutionServiceApplication {
                             .version("GCC 13")
                             .dockerImage("gcc:13")
                             .fileExtension(".cpp")
-                            .helloWorldCode(
-                                    "#include <iostream>\n" +
-                                            "int main() {\n" +
-                                            "    std::cout << \"Hello, World!\"" +
-                                            " << std::endl;\n" +
-                                            "    return 0;\n" +
-                                            "}")
+                            .helloWorldCode("""
+                                #include <iostream>
+                                int main() {
+                                    std::cout << "Hello, World!" << std::endl;
+                                    return 0;
+                                }
+                                """)
                             .isActive(true)
                             .build(),
 
@@ -115,12 +114,14 @@ public class ExecutionServiceApplication {
                             .version("1.21")
                             .dockerImage("golang:1.21-alpine")
                             .fileExtension(".go")
-                            .helloWorldCode(
-                                    "package main\n\n" +
-                                            "import \"fmt\"\n\n" +
-                                            "func main() {\n" +
-                                            "    fmt.Println(\"Hello, World!\")\n" +
-                                            "}")
+                            .helloWorldCode("""
+                                package main
+                                import "fmt"
+                
+                                func main() {
+                                    fmt.Println("Hello, World!")
+                                }
+                                """)
                             .isActive(true)
                             .build(),
 
@@ -130,10 +131,11 @@ public class ExecutionServiceApplication {
                             .version("1.75")
                             .dockerImage("rust:1.75-slim")
                             .fileExtension(".rs")
-                            .helloWorldCode(
-                                    "fn main() {\n" +
-                                            "    println!(\"Hello, World!\");\n" +
-                                            "}")
+                            .helloWorldCode("""
+                                fn main() {
+                                    println!("Hello, World!");
+                                }
+                                """)
                             .isActive(true)
                             .build(),
 
@@ -141,7 +143,7 @@ public class ExecutionServiceApplication {
                             .name("typescript")
                             .displayName("TypeScript")
                             .version("5.0")
-                            .dockerImage("node:18-slim")
+                            .dockerImage("node:18")
                             .fileExtension(".ts")
                             .helloWorldCode(
                                     "console.log(\"Hello, World!\");")
@@ -152,12 +154,13 @@ public class ExecutionServiceApplication {
                             .name("kotlin")
                             .displayName("Kotlin")
                             .version("1.9")
-                            .dockerImage("openjdk:21-slim")
+                            .dockerImage("gradle:jdk21")
                             .fileExtension(".kt")
-                            .helloWorldCode(
-                                    "fun main() {\n" +
-                                            "    println(\"Hello, World!\")\n" +
-                                            "}")
+                            .helloWorldCode("""
+                                fun main() {
+                                    println("Hello, World!")
+                                }
+                                """)
                             .isActive(true)
                             .build(),
 
@@ -178,9 +181,10 @@ public class ExecutionServiceApplication {
                             .version("8.2")
                             .dockerImage("php:8.2-cli")
                             .fileExtension(".php")
-                            .helloWorldCode(
-                                    "<?php\n" +
-                                            "echo \"Hello, World!\\n\";")
+                            .helloWorldCode("""
+                                <?php
+                                echo "Hello, World!";
+                                """)
                             .isActive(true)
                             .build(),
 
@@ -188,7 +192,7 @@ public class ExecutionServiceApplication {
                             .name("swift")
                             .displayName("Swift")
                             .version("5.9")
-                            .dockerImage("swift:5.9-slim")
+                            .dockerImage("swift:5.9")
                             .fileExtension(".swift")
                             .helloWorldCode(
                                     "print(\"Hello, World!\")")

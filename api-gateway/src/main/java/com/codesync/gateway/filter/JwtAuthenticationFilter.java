@@ -37,9 +37,12 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             "/api/v1/auth/login",
             "/api/v1/auth/refresh",
             "/api/v1/auth/validate",
-            "/api/v1/auth/oauth2",        // covers /authorize and /callback
+            "/api/v1/auth/oauth2",// covers /authorize and /callback
             "/oauth2",                     // Spring Security internal
             "/login/oauth2",
+            "/api/v1/auth/otp/send",
+            "/api/v1/auth/otp/verify",
+            "/api/v1/auth/check-email",
             "/api/v1/projects/public",          // browse public projects
             "/api/v1/projects/search",           // search projects (guest allowed)
             "/api/v1/executions/languages",      // view supported languages

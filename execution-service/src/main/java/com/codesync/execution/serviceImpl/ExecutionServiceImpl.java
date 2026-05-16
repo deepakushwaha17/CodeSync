@@ -80,10 +80,10 @@ public class ExecutionServiceImpl implements ExecutionService {
         ExecutionJob saved = jobRepository.save(job);
         log.info("Job saved with ID: {}", saved.getJobId());
 
-        // Publish job ID to RabbitMQ queue
-        // Worker will pick it up and execute
         rabbitTemplate.convertAndSend(
-                exchangeName, routingKey, saved.getJobId());
+                "execution.jobs",
+                saved.getJobId()
+        );
 
         log.info("Job {} published to RabbitMQ queue",
                 saved.getJobId());
@@ -106,7 +106,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 .findByUserIdOrderByCreatedAtDesc(userId)
                 .stream()
                 .map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
@@ -116,7 +116,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 .findByProjectIdOrderByCreatedAtDesc(projectId)
                 .stream()
                 .map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ public class ExecutionServiceImpl implements ExecutionService {
         return languageRepository.findByIsActiveTrue()
                 .stream()
                 .map(this::mapToLanguageResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override

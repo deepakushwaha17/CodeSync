@@ -116,7 +116,7 @@ public class VersionServiceImpl implements VersionService {
         return snapshotRepository
                 .findByFileIdOrderByCreatedAtDesc(fileId)
                 .stream().map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
@@ -125,7 +125,7 @@ public class VersionServiceImpl implements VersionService {
         return snapshotRepository
                 .findByProjectIdOrderByCreatedAtDesc(projectId)
                 .stream().map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
@@ -135,7 +135,7 @@ public class VersionServiceImpl implements VersionService {
                 .findByFileIdAndBranchOrderByCreatedAtDesc(
                         fileId, branch)
                 .stream().map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
@@ -151,7 +151,7 @@ public class VersionServiceImpl implements VersionService {
     public List<SnapshotResponse> getFileHistory(Long fileId) {
         return snapshotRepository.findFileHistory(fileId)
                 .stream().map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -224,13 +224,10 @@ public class VersionServiceImpl implements VersionService {
         int lineNumA = 1;
         int lineNumB = 1;
 
-        // Track which lines are changed
-        List<Integer> changedLinesA = new ArrayList<>();
-        List<Integer> changedLinesB = new ArrayList<>();
 
         for (AbstractDelta<String> delta : patch.getDeltas()) {
             int posA = delta.getSource().getPosition();
-            int posB = delta.getTarget().getPosition();
+            //int posB = delta.getTarget().getPosition();
 
             // Add unchanged lines before this delta
             while (lineNumA <= posA) {
@@ -245,8 +242,7 @@ public class VersionServiceImpl implements VersionService {
             }
 
             // Add removed lines (from snapshot A)
-            if (delta.getType() == DeltaType.DELETE
-                    || delta.getType() == DeltaType.CHANGE) {
+            if (delta.getType() == DeltaType.DELETE || delta.getType() == DeltaType.CHANGE) {
                 for (String line : delta.getSource().getLines()) {
                     diffLines.add(DiffResponse.DiffLine.builder()
                             .type("REMOVED")
@@ -258,8 +254,7 @@ public class VersionServiceImpl implements VersionService {
             }
 
             // Add added lines (from snapshot B)
-            if (delta.getType() == DeltaType.INSERT
-                    || delta.getType() == DeltaType.CHANGE) {
+            if (delta.getType() == DeltaType.INSERT || delta.getType() == DeltaType.CHANGE) {
                 for (String line : delta.getTarget().getLines()) {
                     diffLines.add(DiffResponse.DiffLine.builder()
                             .type("ADDED")

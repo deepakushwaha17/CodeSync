@@ -1,13 +1,12 @@
 package com.codesync.auth.controller;
 
-import com.codesync.auth.dto.request.ChangePasswordRequest;
-import com.codesync.auth.dto.request.LoginRequest;
-import com.codesync.auth.dto.request.RegisterRequest;
-import com.codesync.auth.dto.request.UpdateProfileRequest;
+import com.codesync.auth.dto.request.*;
 import com.codesync.auth.dto.response.ApiResponse;
 import com.codesync.auth.dto.response.AuthResponse;
+import com.codesync.auth.dto.response.OtpResponse;
 import com.codesync.auth.dto.response.UserResponse;
 import com.codesync.auth.service.AuthService;
+import com.codesync.auth.service.OtpService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -17,6 +16,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletResponse;
+
+import org.springframework.web.multipart.MultipartFile;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.UUID;
+
 import java.io.IOException;
 
 import java.util.List;
@@ -29,6 +35,7 @@ import java.util.List;
 public class AuthController {
 
     private final AuthService authService;
+    private final OtpService otpService;
 
     // ── POST /api/v1/auth/register ────────────────────────────────────
     @PostMapping("/register")
@@ -119,6 +126,80 @@ public class AuthController {
                 ApiResponse.success("Profile updated successfully.", updated));
     }
 
+    @PostMapping("/users/{userId}/avatar")
+    @Operation(summary = "Upload user avatar")
+    public ResponseEntity<ApiResponse<UserResponse>> uploadAvatar(
+            @PathVariable Long userId,
+            @RequestParam("file") MultipartFile file) {
+
+        try {
+            if (file.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.<UserResponse>builder()
+                                .success(false)
+                                .message("File is empty.")
+                                .build());
+            }
+
+            String contentType = file.getContentType();
+
+            if (contentType == null ||
+                    !(contentType.equals("image/jpeg") ||
+                            contentType.equals("image/png") ||
+                            contentType.equals("image/gif") ||
+                            contentType.equals("image/webp"))) {
+
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.<UserResponse>builder()
+                                .success(false)
+                                .message("Only JPG, PNG, GIF, WEBP images are allowed.")
+                                .build());
+            }
+
+            if (file.getSize() > 2 * 1024 * 1024) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.<UserResponse>builder()
+                                .success(false)
+                                .message("Image size must be less than 2MB.")
+                                .build());
+            }
+
+            String uploadDir = "uploads/avatars/";
+            Files.createDirectories(Paths.get(uploadDir));
+
+            String originalName = file.getOriginalFilename();
+            String extension = "";
+
+            if (originalName != null && originalName.contains(".")) {
+                extension = originalName.substring(originalName.lastIndexOf("."));
+            }
+
+            String fileName = UUID.randomUUID() + extension;
+            Path filePath = Paths.get(uploadDir + fileName);
+
+            Files.write(filePath, file.getBytes());
+
+            UpdateProfileRequest request = new UpdateProfileRequest();
+            request.setAvatarUrl(
+                    "http://localhost:8081/uploads/avatars/" + fileName
+            );
+
+            UserResponse updated =
+                    authService.updateProfile(userId, request);
+
+            return ResponseEntity.ok(
+                    ApiResponse.success("Avatar uploaded successfully.", updated)
+            );
+
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<UserResponse>builder()
+                            .success(false)
+                            .message("Avatar upload failed: " + e.getMessage())
+                            .build());
+        }
+    }
+
     // ── PUT /api/v1/auth/users/{userId}/password ──────────────────────
     @PutMapping("/users/{userId}/password")
     @Operation(summary = "Change user password")
@@ -165,5 +246,109 @@ public class AuthController {
     @Operation(summary = "Initiate Google OAuth2 login")
     public void googleLogin(HttpServletResponse response) throws IOException {
         response.sendRedirect("/oauth2/authorization/google");
+    }
+
+    /**
+     * login/signup — send OTP to email.
+     * POST /api/v1/auth/otp/send
+     */
+    @PostMapping("/otp/send")
+    public ResponseEntity<ApiResponse<OtpResponse>>
+    sendOtp(
+            @Valid @RequestBody
+            SendOtpRequest request) {
+
+        log.info("OTP send request for: {}",
+                request.getEmail());
+
+        OtpResponse response = otpService.sendOtp(
+                request.getEmail(),
+                request.getPurpose()
+        );
+
+        if (!response.getSuccess()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<OtpResponse>builder()
+                            .success(false)
+                            .message(response.getMessage())
+                            .build());
+        }
+
+        return ResponseEntity.ok(
+                ApiResponse.<OtpResponse>builder()
+                        .success(true)
+                        .message(response.getMessage())
+                        .data(response)
+                        .build()
+        );
+    }
+
+    /**
+     * login/signup — verify OTP.
+     * POST /api/v1/auth/otp/verify
+     */
+    @PostMapping("/otp/verify")
+    public ResponseEntity<ApiResponse<String>>
+    verifyOtp(
+            @Valid @RequestBody
+            VerifyOtpRequest request) {
+
+        log.info("OTP verify request for: {}",
+                request.getEmail());
+
+        try {
+            boolean valid = otpService.verifyOtp(
+                    request.getEmail(),
+                    request.getOtp(),
+                    request.getPurpose()
+            );
+
+            if (valid) {
+                return ResponseEntity.ok(
+                        ApiResponse.<String>builder()
+                                .success(true)
+                                .message("OTP verified " +
+                                        "successfully.")
+                                .data("VERIFIED")
+                                .build()
+                );
+            }
+
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<String>builder()
+                            .success(false)
+                            .message("Invalid OTP.")
+                            .build());
+
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<String>builder()
+                            .success(false)
+                            .message(e.getMessage())
+                            .build());
+        }
+    }
+
+    /**
+     * Check if email exists (for signup validation).
+     * GET /api/v1/auth/check-email?email=...
+     */
+    @GetMapping("/check-email")
+    public ResponseEntity<ApiResponse<Boolean>>
+    checkEmail(
+            @RequestParam String email) {
+
+        boolean exists =
+                otpService.isEmailRegistered(email);
+
+        return ResponseEntity.ok(
+                ApiResponse.<Boolean>builder()
+                        .success(true)
+                        .message(exists
+                                ? "Email already registered."
+                                : "Email available.")
+                        .data(exists)
+                        .build()
+        );
     }
 }

@@ -18,9 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -121,7 +119,7 @@ public class FileServiceImpl implements FileService {
                 .findByProjectIdAndIsDeleted(projectId, false)
                 .stream()
                 .map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
@@ -152,7 +150,7 @@ public class FileServiceImpl implements FileService {
                 .searchInProject(projectId, keyword)
                 .stream()
                 .map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -392,7 +390,7 @@ public class FileServiceImpl implements FileService {
 
                     return node;
                 })
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private FileResponse mapToResponse(CodeFile f) {

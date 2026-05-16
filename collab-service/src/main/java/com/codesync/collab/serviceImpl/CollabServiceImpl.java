@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -191,18 +192,23 @@ public class CollabServiceImpl implements CollabService {
         }
 
         // Check if user already in session
-        if (participantRepository.existsBySessionIdAndUserId(
-                sessionId, userId)) {
+        // Check if user already in session
+        Optional<Participant> existingOpt =
+                participantRepository.findBySessionIdAndUserId(
+                        sessionId, userId);
+
+        if (existingOpt.isPresent()) {
 
             // Re-joining — clear leftAt
-            Participant existing = participantRepository
-                    .findBySessionIdAndUserId(sessionId, userId)
-                    .get();
+            Participant existing = existingOpt.get();
             existing.setLeftAt(null);
+
             Participant updated =
                     participantRepository.save(existing);
-            log.info("User {} re-joined session {}", userId,
-                    sessionId);
+
+            log.info("User {} re-joined session {}",
+                    userId, sessionId);
+
             return mapToParticipantResponse(updated);
         }
 

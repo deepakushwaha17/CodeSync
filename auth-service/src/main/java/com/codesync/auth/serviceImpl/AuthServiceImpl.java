@@ -31,7 +31,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -189,7 +188,7 @@ public class AuthServiceImpl implements AuthService {
         return userRepository.searchByUsername(keyword)
                 .stream()
                 .map(this::mapToUserResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
@@ -197,7 +196,7 @@ public class AuthServiceImpl implements AuthService {
         return userRepository.findAll()
                 .stream()
                 .map(this::mapToUserResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     // ─────────────────────────────────────────────────────────────────

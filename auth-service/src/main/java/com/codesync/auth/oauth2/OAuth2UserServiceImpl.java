@@ -35,9 +35,6 @@ public class OAuth2UserServiceImpl extends DefaultOAuth2UserService {
                 .getRegistrationId().toLowerCase();
 
         OAuth2User effectiveUser = oAuth2User;
-
-        // FIX: GitHub returns null email when user has set it to private.
-        // Fetch from /user/emails API using the access token instead.
         if ("github".equals(registrationId)) {
             Map<String, Object> attributes = new HashMap<>(oAuth2User.getAttributes());
             String email = attributes.get("email") != null
@@ -65,7 +62,6 @@ public class OAuth2UserServiceImpl extends DefaultOAuth2UserService {
 
         log.info("OAuth2 user loaded: provider={}, email={}", registrationId, userInfo.getEmail());
 
-        // FIX: look up by provider + providerId (stable) instead of email only
         Optional<User> existingUser = userRepository.findByProviderAndProviderId(
                 Provider.valueOf(registrationId.toUpperCase()),
                 userInfo.getProviderId()
@@ -118,7 +114,6 @@ public class OAuth2UserServiceImpl extends DefaultOAuth2UserService {
         log.info("New OAuth2 user registered: {} via {}", newUser.getEmail(), registrationId);
     }
 
-    // FIX: fetch real email from GitHub when user has set it to private
     private String fetchGithubPrimaryEmail(String accessToken) {
         RestTemplate restTemplate = new RestTemplate();
 

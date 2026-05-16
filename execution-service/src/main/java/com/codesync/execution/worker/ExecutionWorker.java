@@ -11,23 +11,27 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-/**
- * RabbitMQ consumer that processes execution jobs.
- *
- * Listens to: execution.jobs queue
- * Receives:   job ID (String)
- * Processes:  fetches job from DB → simulates execution
- *             → updates result in DB
- *
- * In production: replace simulateExecution() with
- * actual Docker container execution using Docker Java SDK.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ExecutionWorker {
+
+    private static final String DOCKER = "docker";
+    private static final String RUN = "run";
+    private static final String REMOVE_AFTER_RUN = "--rm";
+    private static final String INTERACTIVE = "-i";
+    private static final String VOLUME_FLAG = "-v";
+    private static final String WORKSPACE = "/workspace/";
+    private static final String SHELL = "sh";
+    private static final String SHELL_COMMAND = "-c";
 
     private final ExecutionJobRepository jobRepository;
     private final ExecutionService executionService;
@@ -38,17 +42,12 @@ public class ExecutionWorker {
     @Value("${execution.sandbox.max-memory-mb:256}")
     private int maxMemoryMb;
 
-    /**
-     * Listen to RabbitMQ queue and process execution jobs.
-     */
-    @RabbitListener(queues = "${execution.sandbox.queue-name"
-            + ":execution.jobs}")
+    @RabbitListener(queues = "execution.jobs")
     @Transactional
     public void processJob(String jobId) {
         log.info("Worker received job ID: {}", jobId);
 
-        Optional<ExecutionJob> optJob =
-                jobRepository.findById(jobId);
+        Optional<ExecutionJob> optJob = jobRepository.findById(jobId);
 
         if (optJob.isEmpty()) {
             log.error("Job not found in DB: {}", jobId);
@@ -57,28 +56,23 @@ public class ExecutionWorker {
 
         ExecutionJob job = optJob.get();
 
-        // Skip if already cancelled
         if (job.getStatus() == ExecutionStatus.CANCELLED) {
             log.info("Job {} was cancelled, skipping.", jobId);
             return;
         }
 
-        // Mark as RUNNING
         job.setStatus(ExecutionStatus.RUNNING);
         jobRepository.save(job);
 
-        log.info("Executing job: {} language: {}",
-                jobId, job.getLanguage());
+        log.info("Executing job: {} language: {}", jobId, job.getLanguage());
 
         try {
-            // Execute the code
             ExecutionResult result = simulateExecution(
                     job.getLanguage(),
                     job.getSourceCode(),
                     job.getStdin()
             );
 
-            // Save result
             executionService.updateJobResult(
                     jobId,
                     result.stdout,
@@ -88,8 +82,7 @@ public class ExecutionWorker {
                     result.memoryUsedKb
             );
 
-            log.info("Job {} completed. Exit code: {}",
-                    jobId, result.exitCode);
+            log.info("Job {} completed. Exit code: {}", jobId, result.exitCode);
 
         } catch (Exception e) {
             log.error("Job {} failed: {}", jobId, e.getMessage());
@@ -104,157 +97,303 @@ public class ExecutionWorker {
         }
     }
 
-    /**
-     * Simulates code execution with realistic output.
-     *
-     * TODO: Replace this with actual Docker container execution:
-     *
-     * DockerClient docker = DockerClientBuilder.getInstance().build();
-     * CreateContainerResponse container = docker.createContainerCmd(image)
-     *     .withCmd("sh", "-c", compileAndRunCommand)
-     *     .withMemory(maxMemoryMb * 1024 * 1024L)
-     *     .withNetworkDisabled(true)
-     *     .exec();
-     * docker.startContainerCmd(container.getId()).exec();
-     * // wait for result with timeout
-     * // collect stdout/stderr
-     * // destroy container
-     */
     private ExecutionResult simulateExecution(
             String language,
             String sourceCode,
-            String stdin) throws InterruptedException {
+            String stdin) throws Exception {
 
         long startTime = System.currentTimeMillis();
+        Path tempDir = Files.createTempDirectory("codesync-");
+        String volume = tempDir.toAbsolutePath() + ":/workspace";
 
-        // Simulate execution time (500ms - 3000ms)
-        long simulatedTime = 500 + (long)(Math.random() * 2500);
-        Thread.sleep(Math.min(simulatedTime,
-                maxTimeSeconds * 1000L));
+        ProcessBuilder pb = createProcessBuilder(
+                language.toLowerCase(),
+                sourceCode,
+                tempDir,
+                volume
+        );
 
-        long executionTime =
-                System.currentTimeMillis() - startTime;
-
-        // Simulate memory usage (10MB - 150MB)
-        long memoryUsed = 10240 + (long)(Math.random() * 143360);
-
-        String stdout;
-        String stderr = "";
-        int exitCode;
-
-        // Generate realistic output based on language
-        switch (language.toLowerCase()) {
-
-            case "java":
-                if (sourceCode.contains(
-                        "System.out.println")) {
-                    stdout = extractPrintOutput(
-                            sourceCode, "println");
-                    exitCode = 0;
-                } else if (sourceCode.contains("main")) {
-                    stdout = "Program executed successfully.\n";
-                    exitCode = 0;
-                } else {
-                    stderr = "error: class is public, " +
-                            "should be in file named "
-                            + extractClassName(sourceCode)
-                            + ".java\n";
-                    stdout = "";
-                    exitCode = 1;
-                }
-                break;
-
-            case "python":
-                if (sourceCode.contains("print")) {
-                    stdout = extractPrintOutput(
-                            sourceCode, "print");
-                    exitCode = 0;
-                } else {
-                    stdout = "";
-                    exitCode = 0;
-                }
-                break;
-
-            case "javascript":
-            case "nodejs":
-                if (sourceCode.contains("console.log")) {
-                    stdout = extractPrintOutput(
-                            sourceCode, "console.log");
-                    exitCode = 0;
-                } else {
-                    stdout = "";
-                    exitCode = 0;
-                }
-                break;
-
-            case "c":
-            case "cpp":
-                if (sourceCode.contains("printf")
-                        || sourceCode.contains("cout")) {
-                    stdout = "Program output here\n";
-                    exitCode = 0;
-                } else {
-                    stdout = "";
-                    exitCode = 0;
-                }
-                break;
-
-            default:
-                stdout = "Program executed successfully "
-                        + "in " + language + "\n";
-                exitCode = 0;
+        if (pb == null) {
+            return new ExecutionResult(
+                    "",
+                    "Unsupported language: " + language,
+                    1,
+                    0L,
+                    0L
+            );
         }
 
-        // Simulate occasional timeout
-        if (executionTime > maxTimeSeconds * 900L) {
-            stderr = "Time Limit Exceeded: execution "
-                    + "exceeded " + maxTimeSeconds + "s";
-            exitCode = 124;
+        pb.directory(tempDir.toFile());
+
+        Process process = pb.start();
+
+        if (stdin != null && !stdin.isBlank()) {
+            process.getOutputStream()
+                    .write(stdin.getBytes(StandardCharsets.UTF_8));
+            process.getOutputStream().flush();
         }
+
+        process.getOutputStream().close();
+
+        boolean finished = process.waitFor(maxTimeSeconds, TimeUnit.SECONDS);
+
+        if (!finished) {
+            process.destroyForcibly();
+            return new ExecutionResult(
+                    "",
+                    "Time Limit Exceeded",
+                    124,
+                    0L,
+                    0L
+            );
+        }
+
+        String stdout = new String(
+                process.getInputStream().readAllBytes(),
+                StandardCharsets.UTF_8
+        );
+
+        String stderr = new String(
+                process.getErrorStream().readAllBytes(),
+                StandardCharsets.UTF_8
+        );
 
         return new ExecutionResult(
-                stdout, stderr, exitCode,
-                executionTime, memoryUsed);
+                stdout,
+                stderr,
+                process.exitValue(),
+                System.currentTimeMillis() - startTime,
+                0L
+        );
     }
 
-    private String extractPrintOutput(
-            String code, String printFunc) {
-        // Very basic extraction for simulation
-        StringBuilder output = new StringBuilder();
-        String[] lines = code.split("\n");
-        for (String line : lines) {
-            if (line.trim().startsWith(printFunc)) {
-                int start = line.indexOf("\"");
-                int end = line.lastIndexOf("\"");
-                if (start != -1 && end > start) {
-                    output.append(
-                                    line.substring(start + 1, end))
-                            .append("\n");
-                }
-            }
-        }
-        return output.length() > 0
-                ? output.toString()
-                : "Hello, World!\n";
+    private ProcessBuilder createProcessBuilder(
+            String language,
+            String sourceCode,
+            Path tempDir,
+            String volume) throws Exception {
+
+        return switch (language) {
+            case "python", "py" -> createDirectRunBuilder(
+                    tempDir,
+                    "main.py",
+                    sourceCode,
+                    volume,
+                    "python:3.11-slim",
+                    "python",
+                    WORKSPACE + "main.py"
+            );
+
+            case "java" -> createJavaBuilder(sourceCode, tempDir, volume);
+
+            case "javascript", "js", "nodejs" -> createDirectRunBuilder(
+                    tempDir,
+                    "main.js",
+                    sourceCode,
+                    volume,
+                    "node:18-slim",
+                    "node",
+                    WORKSPACE + "main.js"
+            );
+
+            case "typescript", "ts" -> createShellRunBuilder(
+                    tempDir,
+                    "main.ts",
+                    sourceCode,
+                    volume,
+                    "node:18",
+                    "npm install -g typescript ts-node >/dev/null 2>&1 "
+                            + "&& ts-node /workspace/main.ts"
+            );
+
+            case "c" -> createShellRunBuilder(
+                    tempDir,
+                    "main.c",
+                    sourceCode,
+                    volume,
+                    "gcc:13",
+                    "gcc /workspace/main.c -o /workspace/main "
+                            + "&& /workspace/main"
+            );
+
+            case "cpp", "c++" -> createShellRunBuilder(
+                    tempDir,
+                    "main.cpp",
+                    sourceCode,
+                    volume,
+                    "gcc:13",
+                    "g++ /workspace/main.cpp -o /workspace/main "
+                            + "&& /workspace/main"
+            );
+
+            case "go" -> createDirectRunBuilder(
+                    tempDir,
+                    "main.go",
+                    sourceCode,
+                    volume,
+                    "golang:1.21-alpine",
+                    "go",
+                    "run",
+                    WORKSPACE + "main.go"
+            );
+
+            case "rust", "rs" -> createShellRunBuilder(
+                    tempDir,
+                    "main.rs",
+                    sourceCode,
+                    volume,
+                    "rust:1.75-slim",
+                    "rustc /workspace/main.rs -o /workspace/main "
+                            + "&& /workspace/main"
+            );
+
+            case "ruby", "rb" -> createDirectRunBuilder(
+                    tempDir,
+                    "main.rb",
+                    sourceCode,
+                    volume,
+                    "ruby:3.2-slim",
+                    "ruby",
+                    WORKSPACE + "main.rb"
+            );
+
+            case "php" -> createDirectRunBuilder(
+                    tempDir,
+                    "main.php",
+                    sourceCode,
+                    volume,
+                    "php:8.2-cli",
+                    "php",
+                    WORKSPACE + "main.php"
+            );
+
+            case "kotlin", "kt" -> createShellRunBuilder(
+                    tempDir,
+                    "Main.kt",
+                    sourceCode,
+                    volume,
+                    "gradle:jdk21",
+                    "kotlinc /workspace/Main.kt -include-runtime "
+                            + "-d /workspace/main.jar && java -jar "
+                            + "/workspace/main.jar"
+            );
+
+            case "swift" -> createDirectRunBuilder(
+                    tempDir,
+                    "main.swift",
+                    sourceCode,
+                    volume,
+                    "swift:5.9-slim",
+                    "swift",
+                    WORKSPACE + "main.swift"
+            );
+
+            default -> null;
+        };
     }
 
-    private String extractClassName(String code) {
-        String[] parts = code.split("\\s+");
-        for (int i = 0; i < parts.length - 1; i++) {
-            if (parts[i].equals("class")) {
-                return parts[i + 1].replace("{", "");
-            }
+    private ProcessBuilder createDirectRunBuilder(
+            Path tempDir,
+            String fileName,
+            String sourceCode,
+            String volume,
+            String image,
+            String... command) throws Exception {
+
+        Files.writeString(
+                tempDir.resolve(fileName),
+                sourceCode,
+                StandardCharsets.UTF_8
+        );
+
+        String[] baseCommand = {
+                DOCKER, RUN, REMOVE_AFTER_RUN, INTERACTIVE,
+                VOLUME_FLAG, volume, image
+        };
+
+        String[] fullCommand =
+                new String[baseCommand.length + command.length];
+
+        System.arraycopy(baseCommand, 0, fullCommand, 0, baseCommand.length);
+        System.arraycopy(
+                command,
+                0,
+                fullCommand,
+                baseCommand.length,
+                command.length
+        );
+
+        return new ProcessBuilder(fullCommand);
+    }
+
+    private ProcessBuilder createShellRunBuilder(
+            Path tempDir,
+            String fileName,
+            String sourceCode,
+            String volume,
+            String image,
+            String command) throws Exception {
+
+        return createDirectRunBuilder(
+                tempDir,
+                fileName,
+                sourceCode,
+                volume,
+                image,
+                SHELL,
+                SHELL_COMMAND,
+                command
+        );
+    }
+
+    private ProcessBuilder createJavaBuilder(
+            String sourceCode,
+            Path tempDir,
+            String volume) throws Exception {
+
+        String className = extractJavaClassName(sourceCode);
+
+        return createShellRunBuilder(
+                tempDir,
+                className + ".java",
+                sourceCode,
+                volume,
+                "eclipse-temurin:21-jdk",
+                "javac /workspace/" + className
+                        + ".java && java -cp /workspace "
+                        + className
+        );
+    }
+
+    private String extractJavaClassName(String sourceCode) {
+        Pattern publicClassPattern =
+                Pattern.compile("public\\s+class\\s+(\\w+)");
+
+        Matcher publicMatcher =
+                publicClassPattern.matcher(sourceCode);
+
+        if (publicMatcher.find()) {
+            return publicMatcher.group(1);
         }
+
+        Pattern classPattern =
+                Pattern.compile("class\\s+(\\w+)");
+
+        Matcher classMatcher =
+                classPattern.matcher(sourceCode);
+
+        if (classMatcher.find()) {
+            return classMatcher.group(1);
+        }
+
         return "Main";
     }
 
-    /**
-     * Result holder for execution output.
-     */
     private record ExecutionResult(
             String stdout,
             String stderr,
             int exitCode,
             long executionTimeMs,
-            long memoryUsedKb) {}
+            long memoryUsedKb) {
+    }
 }
