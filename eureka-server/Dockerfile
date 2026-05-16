@@ -26,7 +26,7 @@ RUN addgroup -S codesync && adduser -S codesync -G codesync
 WORKDIR /app
 
 # Copy the built JAR from builder stage
-COPY --from=builder /app/target/eureka-server-1.0.0.jar app.jar
+COPY --from=builder /app/target/*.jar app.jar
 
 # Change ownership to non-root user
 RUN chown codesync:codesync app.jar
